@@ -50,8 +50,10 @@ class ARIAHarness:
         self.research_agent = ResearchAgent(
             self.settings,
             planner=self.planner,
+            brain=self.brain,
             memory=self.memory,
             router=self.router,
+            browser=self.browser,
             register_default_tools=False,
         )
         return self

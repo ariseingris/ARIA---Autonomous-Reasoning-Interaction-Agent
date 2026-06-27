@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+from aria.brain import Brain
 from aria.browser import BrowserAgent, BrowserSession
 from aria.config import Settings
 from aria.memory import MemoryRecord, MemoryStore, create_memory
 from aria.planner.react import ReActPlanner
 from aria.planner.types import StepStatus
+from aria.transcript import TranscriptPipeline, find_youtube_url
 from aria.tools.router import ToolRouter
 from aria.tools.types import ToolResult
 from aria.vision.claude import ClaudeVisionClient
@@ -17,25 +19,30 @@ class ResearchAgent:
         self,
         settings: Settings,
         planner: ReActPlanner | None = None,
+        brain: Brain | None = None,
         memory: MemoryStore | None = None,
         router: ToolRouter | None = None,
+        browser: BrowserAgent | None = None,
         register_default_tools: bool = True,
     ) -> None:
         self.settings = settings
         self.planner = planner or ReActPlanner()
+        self.brain = brain
         self.memory = memory or create_memory(settings.memory_dir, settings.memory_backend)
         self.router = router or ToolRouter()
+        self.browser = browser
         self.reporter = ReportAgent(settings.reports_dir)
         if register_default_tools:
             self._register_tools()
 
     def _register_tools(self) -> None:
         vision = ClaudeVisionClient(api_key=self.settings.anthropic_api_key, model=self.settings.vision_model)
-        browser = BrowserAgent(
+        browser = self.browser or BrowserAgent(
             BrowserSession(headless=self.settings.headless),
             screenshots_dir=self.settings.screenshots_dir,
             vision=vision,
         )
+        self.browser = browser
         self.router.register("browser.fetch", browser.fetch)
         self.router.register("browser.screenshot", browser.screenshot)
         self.router.register("memory.search", self._memory_search)
@@ -50,6 +57,16 @@ class ResearchAgent:
         return ToolResult(name="report.write", ok=True, content="Report synthesis queued.")
 
     async def run(self, task: str) -> Report:
+        youtube_url = find_youtube_url(task)
+        if youtube_url:
+            pipeline = TranscriptPipeline(
+                memory=self.memory,
+                reports_dir=self.settings.reports_dir,
+                brain=self.brain,
+                browser=self.browser,
+            )
+            return await pipeline.run_youtube(youtube_url, task=task)
+
         plan = self.planner.create_plan(task)
         observations: list[str] = []
         failures = 0
