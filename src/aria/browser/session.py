@@ -64,15 +64,17 @@ class BrowserSession:
 
         async with async_playwright() as p:
             browser = await p.chromium.launch(headless=self.headless)
-            page = await browser.new_page(viewport={"width": 1400, "height": 900})
-            await page.goto(url, wait_until="domcontentloaded", timeout=45_000)
-            title = await page.title()
-            text = await page.locator("body").inner_text(timeout=10_000)
-            shot = None
-            if screenshot_path:
-                await page.screenshot(path=screenshot_path, full_page=False)
-                shot = screenshot_path
-            await browser.close()
+            try:
+                page = await browser.new_page(viewport={"width": 1400, "height": 900})
+                await page.goto(url, wait_until="domcontentloaded", timeout=45_000)
+                title = await page.title()
+                text = await page.locator("body").inner_text(timeout=10_000)
+                shot = None
+                if screenshot_path:
+                    await page.screenshot(path=screenshot_path, full_page=False)
+                    shot = screenshot_path
+            finally:
+                await browser.close()
 
         return PageObservation(url=url, title=title, text=text[:12000], screenshot_path=shot, source="playwright")
 

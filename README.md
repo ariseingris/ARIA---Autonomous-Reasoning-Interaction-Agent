@@ -172,18 +172,26 @@ aria --help
 
 # Configuration
 
+Set the OpenAI key used by ARIA's brain:
+
 ```bash
 aria config set openai-api-key
 ```
 
-Verify configuration
+For local/offline verification without a key, allow the mock brain:
+
+```bash
+export ARIA_ALLOW_MOCK_BRAIN=1
+```
+
+Verify configuration:
 
 ```bash
 aria config show
 aria config check
 ```
 
-Verify Brain
+Verify the brain:
 
 ```bash
 aria brain check
@@ -191,24 +199,54 @@ aria brain check
 
 ---
 
-# Demo
+# Run
 
-Run
-
-```bash
-aria demo
-```
-
-Example
+Run a research task:
 
 ```bash
-aria run "Research browser-use and produce a report."
+aria run "Research browser-use and produce a short report for ARIA"
 ```
 
-Generated reports
+Learn from a YouTube transcript:
+
+```bash
+aria youtube https://www.youtube.com/watch?v=t5F3RkDRzqA
+aria learn https://www.youtube.com/watch?v=t5F3RkDRzqA
+```
+
+Learn from a web or GitHub URL:
+
+```bash
+aria learn https://github.com/browser-use/browser-use
+```
+
+Search memory:
+
+```bash
+aria memory search "browser screenshots"
+```
+
+List generated reports:
+
+```bash
+aria report list
+```
+
+Generated reports are written under:
 
 ```
 reports/
+```
+
+---
+
+# Demo
+
+```bash
+aria demo
+aria run "youtube https://www.youtube.com/watch?v=t5F3RkDRzqA"
+aria memory search "Spider-Man"
+aria report list
 ```
 
 ---

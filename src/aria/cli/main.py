@@ -5,6 +5,7 @@ import asyncio
 import getpass
 import os
 import platform
+import signal
 import shutil
 import sys
 import webbrowser
@@ -51,7 +52,7 @@ def _config_source(settings: Settings) -> str:
 
 
 def _report_files() -> list[Path]:
-    return sorted(Path("reports").glob("aria-report-*.md"), key=lambda path: path.stat().st_mtime, reverse=True)
+    return sorted(Path("reports").glob("*.md"), key=lambda path: path.stat().st_mtime, reverse=True)
 
 
 def _short(text: str, limit: int = 180) -> str:
@@ -178,7 +179,9 @@ def _config_table(settings: Settings) -> Table:
     table = Table(title="ARIA Configuration")
     table.add_column("Setting", style="cyan")
     table.add_column("Value")
-    table.add_row("Provider", "OpenAI" if settings.openai_api_key else "Mock fallback")
+    force_mock = os.getenv("ARIA_ALLOW_MOCK_BRAIN", "").lower() in {"1", "true", "yes"}
+    provider = "Mock fallback" if force_mock else ("OpenAI" if settings.openai_api_key else "Mock fallback")
+    table.add_row("Provider", provider)
     table.add_row("Model", settings.model)
     table.add_row("Memory backend", settings.memory_backend)
     table.add_row("Vision provider", "Anthropic" if settings.anthropic_api_key else "Mock fallback")
@@ -432,6 +435,8 @@ def _help_parser() -> argparse.ArgumentParser:
         epilog="""examples:
   aria demo
   aria run "Research browser-use and produce a short report for ARIA"
+  aria youtube https://www.youtube.com/watch?v=t5F3RkDRzqA
+  aria learn https://github.com/browser-use/browser-use
   aria config set openai-api-key
   aria config show
   aria config check
@@ -461,25 +466,33 @@ def main(argv: list[str] | None = None) -> int:
     command = argv[0]
     rest = argv[1:]
     if command == "demo":
-        return asyncio.run(run_demo())
+        return _run_async(run_demo())
     if command == "run":
         if not rest:
             parser.error("aria run requires a goal")
-        return asyncio.run(run_task(" ".join(rest)))
+        return _run_async(run_task(" ".join(rest)))
+    if command == "youtube":
+        if not rest:
+            parser.error("aria youtube requires a YouTube URL")
+        return _run_async(run_task("youtube " + " ".join(rest)))
+    if command == "learn":
+        if not rest:
+            parser.error("aria learn requires a URL or topic")
+        return _run_async(run_task("learn " + " ".join(rest)))
     if command == "config" and rest == ["check"]:
-        return asyncio.run(config_check())
+        return _run_async(config_check())
     if command == "config" and rest == ["show"]:
-        return asyncio.run(config_show())
+        return _run_async(config_show())
     if command == "config" and rest == ["set", "openai-api-key"]:
         return config_set_openai_api_key()
     if command == "config" and rest == ["set", "openai-api-key", "--help"]:
         return config_set_openai_api_key_help()
     if command == "brain" and rest == ["check"]:
-        return asyncio.run(brain_check())
+        return _run_async(brain_check())
     if command == "memory" and rest[:1] == ["search"] and len(rest) > 1:
-        return asyncio.run(memory_search(" ".join(rest[1:])))
+        return _run_async(memory_search(" ".join(rest[1:])))
     if command == "doctor":
-        return asyncio.run(doctor())
+        return _run_async(doctor())
     if command == "version":
         return version()
     if command == "report" and rest == ["list"]:
@@ -489,8 +502,52 @@ def main(argv: list[str] | None = None) -> int:
     if command in {"config", "brain", "memory", "report"}:
         parser.error(f"invalid {command!r} command")
 
-    return asyncio.run(run_task(" ".join(argv)))
+    return _run_async(run_task(" ".join(argv)))
+
+
+def _run_async(coro) -> int:
+    loop = asyncio.new_event_loop()
+    try:
+        asyncio.set_event_loop(loop)
+        return loop.run_until_complete(coro)
+    finally:
+        asyncio.set_event_loop(None)
+        loop.close()
 
 
 def app() -> None:
-    raise SystemExit(main())
+    code = main()
+    sys.stdout.flush()
+    sys.stderr.flush()
+    _terminate_child_processes()
+    os._exit(code)
+
+
+def _terminate_child_processes() -> None:
+    children: dict[int, list[int]] = {}
+    try:
+        for status in Path("/proc").glob("[0-9]*/status"):
+            pid = int(status.parent.name)
+            ppid = None
+            for line in status.read_text(encoding="utf-8", errors="ignore").splitlines():
+                if line.startswith("PPid:"):
+                    ppid = int(line.split()[1])
+                    break
+            if ppid is not None:
+                children.setdefault(ppid, []).append(pid)
+    except Exception:
+        return
+
+    pending = list(children.get(os.getpid(), []))
+    descendants: list[int] = []
+    while pending:
+        pid = pending.pop()
+        descendants.append(pid)
+        pending.extend(children.get(pid, []))
+
+    for sig in (signal.SIGTERM, signal.SIGKILL):
+        for pid in descendants:
+            try:
+                os.kill(pid, sig)
+            except OSError:
+                pass

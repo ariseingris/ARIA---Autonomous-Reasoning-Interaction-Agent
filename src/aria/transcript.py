@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import json
 import re
 from dataclasses import dataclass, field
@@ -39,6 +38,12 @@ class TranscriptChunk:
     start: str
     end: str
     text: str
+
+
+@dataclass(frozen=True)
+class TranscriptFetch:
+    segments: list[TranscriptSegment]
+    source: str
 
 
 @dataclass
@@ -84,25 +89,32 @@ class TranscriptPipeline:
         if not video_id:
             raise ValueError(f"Not a YouTube URL: {url}")
 
-        metadata = await self._metadata(url)
-        title = metadata.get("title") or f"YouTube video {video_id}"
-        source = "transcript"
+        title = f"YouTube video {video_id}"
         try:
-            segments = fetch_youtube_transcript(video_id)
-            body = "\n".join(f"[{segment.timestamp}] {segment.text}" for segment in segments)
+            transcript = fetch_youtube_transcript(video_id)
+            segments = transcript.segments
+            source = transcript.source
+            chunks = chunk_transcript(segments, max_chars=self.max_chunk_chars)
+            chunk_summaries = [await self._summarize_chunk(chunk) for chunk in chunks]
+            merged_summary = await self._merge_summaries(chunk_summaries)
+            extracted = await self._extract_sections(merged_summary, chunk_summaries)
         except TranscriptUnavailable:
-            if self.browser is None:
-                raise
-            fallback = await self.browser.fetch(url)
             source = "browser_fallback"
-            body = fallback.content
-            title = str(fallback.data.get("title") or title)
-            segments = [TranscriptSegment(start=0, duration=0, text=line) for line in body.splitlines() if line.strip()]
-
-        chunks = chunk_transcript(segments, max_chars=self.max_chunk_chars)
-        chunk_summaries = [await self._summarize_chunk(chunk) for chunk in chunks]
-        merged_summary = await self._merge_summaries(chunk_summaries)
-        extracted = await self._extract_sections(merged_summary, chunk_summaries)
+            fallback = self._metadata(url)
+            title = fallback.get("title") or title
+            chunks = []
+            chunk_summaries = []
+            merged_summary = (
+                "Transcript unavailable. Browser fallback retrieved metadata only, so no transcript-grounded "
+                "summary, timeline, quotes, technical concepts, or action items could be extracted."
+            )
+            extracted = {
+                "timeline": [],
+                "main_ideas": [],
+                "important_quotes": [],
+                "technical_concepts": [],
+                "action_items": [],
+            }
 
         result = TranscriptPipelineResult(
             url=url,
@@ -122,68 +134,74 @@ class TranscriptPipeline:
         await self._store_memory(result)
         return self._write_report(result)
 
-    async def _metadata(self, url: str) -> dict[str, str]:
-        if self.browser is None:
-            return {}
+    def _metadata(self, url: str) -> dict[str, str]:
         try:
-            result = await asyncio.wait_for(self.browser.fetch(url), timeout=5)
+            html = _http_text(url, timeout=8, limit=500_000)
         except Exception:
             return {}
+        title_match = re.search(r"<title[^>]*>(.*?)</title>", html, re.I | re.S)
+        title = " ".join(unescape(title_match.group(1)).split()) if title_match else ""
         return {
-            "url": str(result.data.get("url") or url),
-            "title": str(result.data.get("title") or ""),
-            "source": str(result.data.get("source") or ""),
+            "url": url,
+            "title": title,
+            "source": "browser_metadata",
         }
 
     async def _summarize_chunk(self, chunk: TranscriptChunk) -> str:
         if self.brain is None or self.brain.provider == "mock":
             return deterministic_summary(chunk.text, prefix=f"{chunk.start}-{chunk.end}")
-        response = await self.brain.generate(
-            BrainRequest(
-                system="You summarize YouTube transcript chunks. Use only the transcript text.",
-                prompt=(
-                    f"Summarize this transcript chunk from {chunk.start} to {chunk.end}. "
-                    "Preserve claims, names, numbers, technical terms, quotes, and action items. "
-                    "Return concise bullets.\n\n"
-                    f"{chunk.text[:12000]}"
-                ),
+        try:
+            response = await self.brain.generate(
+                BrainRequest(
+                    system="You summarize YouTube transcript chunks. Use only the transcript text.",
+                    prompt=(
+                        f"Summarize this transcript chunk from {chunk.start} to {chunk.end}. "
+                        "Preserve claims, names, numbers, technical terms, quotes, and action items. "
+                        "Return concise bullets.\n\n"
+                        f"{chunk.text[:12000]}"
+                    ),
+                )
             )
-        )
-        return response.text.strip()
+            return response.text.strip()
+        except Exception:
+            return deterministic_summary(chunk.text, prefix=f"{chunk.start}-{chunk.end}")
 
     async def _merge_summaries(self, summaries: list[str]) -> str:
         joined = "\n\n".join(f"Chunk {i + 1}:\n{summary}" for i, summary in enumerate(summaries))
         if self.brain is None or self.brain.provider == "mock":
             return "\n".join(summaries)
-        response = await self.brain.generate(
-            BrainRequest(
-                system="You merge transcript chunk summaries. Use only supplied summaries.",
-                prompt=(
-                    "Merge these chunk summaries into one coherent source-grounded summary. "
-                    "Do not add facts that are not present.\n\n"
-                    f"{joined[:16000]}"
-                ),
+        try:
+            response = await self.brain.generate(
+                BrainRequest(
+                    system="You merge transcript chunk summaries. Use only supplied summaries.",
+                    prompt=(
+                        "Merge these chunk summaries into one coherent source-grounded summary. "
+                        "Do not add facts that are not present.\n\n"
+                        f"{joined[:16000]}"
+                    ),
+                )
             )
-        )
-        return response.text.strip()
+            return response.text.strip()
+        except Exception:
+            return "\n".join(summaries)
 
     async def _extract_sections(self, merged_summary: str, summaries: list[str]) -> dict[str, list[str]]:
         source = f"{merged_summary}\n\n" + "\n\n".join(summaries)
         if self.brain is None or self.brain.provider == "mock":
             return deterministic_extract(source)
 
-        response = await self.brain.generate(
-            BrainRequest(
-                system="Extract structured notes from transcript-derived summaries. Use only supplied text.",
-                prompt=(
-                    "Return strict JSON with keys: timeline, main_ideas, important_quotes, "
-                    "technical_concepts, action_items. Each value must be a list of strings. "
-                    "If a section has no evidence, return an empty list.\n\n"
-                    f"{source[:16000]}"
-                ),
-            )
-        )
         try:
+            response = await self.brain.generate(
+                BrainRequest(
+                    system="Extract structured notes from transcript-derived summaries. Use only supplied text.",
+                    prompt=(
+                        "Return strict JSON with keys: timeline, main_ideas, important_quotes, "
+                        "technical_concepts, action_items. Each value must be a list of strings. "
+                        "If a section has no evidence, return an empty list.\n\n"
+                        f"{source[:16000]}"
+                    ),
+                )
+            )
             data = json.loads(_json_object(response.text))
         except Exception:
             data = deterministic_extract(source)
@@ -245,10 +263,10 @@ def find_youtube_url(text: str) -> str | None:
     return None
 
 
-def fetch_youtube_transcript(video_id: str) -> list[TranscriptSegment]:
+def fetch_youtube_transcript(video_id: str) -> TranscriptFetch:
     segments = _fetch_transcript_with_library(video_id)
     if segments:
-        return segments
+        return TranscriptFetch(segments=segments, source="youtube-transcript-api")
 
     try:
         tracks = _caption_tracks(video_id)
@@ -261,7 +279,7 @@ def fetch_youtube_transcript(video_id: str) -> list[TranscriptSegment]:
         raise TranscriptUnavailable(f"Could not fetch transcript for {video_id}: {exc}") from exc
     if not segments:
         raise TranscriptUnavailable(f"Transcript was empty for {video_id}")
-    return segments
+    return TranscriptFetch(segments=segments, source="timedtext_fallback")
 
 
 def _fetch_transcript_with_library(video_id: str) -> list[TranscriptSegment]:
@@ -307,14 +325,24 @@ def chunk_transcript(segments: list[TranscriptSegment], max_chars: int = 5500) -
 
 
 def render_transcript_markdown(result: TranscriptPipelineResult, task: str | None = None) -> str:
+    source_label = {
+        "youtube-transcript-api": "youtube-transcript-api",
+        "timedtext_fallback": "timedtext fallback",
+        "browser_fallback": "browser fallback",
+    }.get(result.source, result.source)
+    transcript_available = result.source != "browser_fallback"
     lines = [
         f"# {result.title}",
         "",
-        f"Source: {result.url}",
-        f"Pipeline source: {result.source}",
+        "## At a Glance",
+        "",
+        f"- Source URL: {result.url}",
+        f"- Transcript source: {source_label}",
+        f"- Transcript status: {'available' if transcript_available else 'unavailable; metadata only'}",
+        f"- Chunks summarized: {len(result.chunks)}",
     ]
     if task:
-        lines.append(f"Task: {task}")
+        lines.append(f"- Task: {task}")
     lines.extend(
         [
             "",
@@ -346,8 +374,11 @@ def render_transcript_markdown(result: TranscriptPipelineResult, task: str | Non
             "",
         ]
     )
-    for chunk, summary in zip(result.chunks, result.chunk_summaries, strict=False):
-        lines.extend([f"### Chunk {chunk.index}: {chunk.start}-{chunk.end}", "", summary, ""])
+    if result.chunks:
+        for chunk, summary in zip(result.chunks, result.chunk_summaries, strict=False):
+            lines.extend([f"### Chunk {chunk.index}: {chunk.start}-{chunk.end}", "", summary, ""])
+    else:
+        lines.extend(["No transcript chunks were available.", ""])
     return "\n".join(lines).strip() + "\n"
 
 
@@ -424,10 +455,10 @@ def _parse_transcript_xml(text: str) -> list[TranscriptSegment]:
     return segments
 
 
-def _http_text(url: str) -> str:
+def _http_text(url: str, timeout: int = 30, limit: int = 2_000_000) -> str:
     request = Request(url, headers={"User-Agent": "ARIA/0.1 transcript pipeline"})
-    with urlopen(request, timeout=30) as response:
-        raw = response.read(2_000_000)
+    with urlopen(request, timeout=timeout) as response:
+        raw = response.read(limit)
         charset = response.headers.get_content_charset() or "utf-8"
     return raw.decode(charset, errors="replace")
 
