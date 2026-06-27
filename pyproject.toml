@@ -1,9 +1,24 @@
 [project]
-name = "aria"
+name = "aria-agent"
 version = "0.1.0"
 description = "Autonomous Reasoning and Interaction Agent CLI"
 readme = "README.md"
 requires-python = ">=3.11"
+license = "MIT"
+authors = [
+    { name = "ARIA Contributors" },
+]
+keywords = ["ai", "agent", "cli", "browser-automation", "playwright", "openai"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Topic :: Software Development :: User Interfaces",
+    "Topic :: Utilities",
+]
 dependencies = [
     "anthropic>=0.112.0",
     "chromadb>=1.5.9",
@@ -16,6 +31,38 @@ dependencies = [
 
 [project.scripts]
 aria = "aria.cli.main:app"
+
+[project.urls]
+Homepage = "https://github.com/aria-agent/aria-agent"
+Documentation = "https://github.com/aria-agent/aria-agent#readme"
+Issues = "https://github.com/aria-agent/aria-agent/issues"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/aria"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "src/aria",
+    "tests",
+    "docs",
+    "README.md",
+    "LICENSE",
+    ".env.example",
+    "pyproject.toml",
+]
+exclude = [
+    "_research_repos",
+    ".aria",
+    "reports",
+    "dist",
+    ".venv",
+    "__pycache__",
+    "*.pyc",
+]
 
 [tool.uv]
 package = true

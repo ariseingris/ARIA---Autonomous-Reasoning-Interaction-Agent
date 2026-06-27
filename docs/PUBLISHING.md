@@ -1,49 +1,75 @@
 # Publishing ARIA
 
-## Local Install
+ARIA is packaged for public Python distribution as `aria-agent`.
+The installed command remains `aria`.
 
-Install the CLI from the repository:
+## Local Install
 
 ```bash
 uv tool install . --reinstall
 aria --help
+aria config set openai-api-key
+aria brain check
 aria demo
 ```
 
-## Configuration
-
-Use `.env.example` as the template:
+## PyPI Build
 
 ```bash
-cp .env.example .env
-aria config check
+uv build
 ```
 
-Supported settings:
+This creates release artifacts under `dist/`.
 
-- `OPENAI_API_KEY`: enables the OpenAI Responses brain provider.
-- `ANTHROPIC_API_KEY`: optional, enables Claude Vision.
-- `ARIA_MODEL`: OpenAI model name, default `gpt-5-mini`.
-- `ARIA_MEMORY_BACKEND`: `json` by default, `chroma` optional.
-- `ARIA_DATA_DIR`: runtime data directory, default `.aria`.
+## PyPI Publish
 
-Never publish `.env`, `.aria/`, generated reports, or real API keys.
+```bash
+uv publish
+```
+
+Use a PyPI token from your local environment or uv credential store. Do not put publish tokens or API keys in the repository.
+
+## Install After Publish
+
+Run without a persistent install:
+
+```bash
+uvx aria-agent
+```
+
+Install as a CLI tool:
+
+```bash
+pipx install aria-agent
+aria --help
+```
+
+## Command Usage
+
+```bash
+aria config set openai-api-key
+aria brain check
+aria demo
+aria run "Research browser-use"
+```
 
 ## Release Checklist
 
 ```bash
 uv run pytest -q
 uv run aria --help
+uv run aria config show
+uv run aria brain check
 uv run aria demo
-uv run aria config check
+uv build
 uv tool install . --reinstall
-aria --help
+aria doctor
+aria demo
 ```
 
-## Console Script
+## Safety Notes
 
-`pyproject.toml` exposes:
-
-```toml
-aria = "aria.cli.main:app"
-```
+- Never commit `.env`.
+- Never print API keys in CLI output.
+- Keep generated `.aria/`, `reports/`, and build artifacts out of version control.
+- Verify `pyproject.toml` exposes `aria = "aria.cli.main:app"`.

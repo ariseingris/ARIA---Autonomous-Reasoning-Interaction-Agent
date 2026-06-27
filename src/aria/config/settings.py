@@ -23,6 +23,37 @@ def _parse_env_file(path: Path) -> dict[str, str]:
     return values
 
 
+def user_env_path() -> Path:
+    return Path(os.getenv("XDG_CONFIG_HOME", Path.home() / ".config")) / "aria" / ".env"
+
+
+def project_env_path(workspace: Path | None = None) -> Path:
+    return (workspace or Path.cwd()) / ".env"
+
+
+def default_write_env_path(workspace: Path | None = None) -> Path:
+    root = workspace or Path.cwd()
+    if (root / "pyproject.toml").exists() and (root / "src" / "aria").exists():
+        return root / ".env"
+    return user_env_path()
+
+
+def write_env_value(path: Path, key: str, value: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lines = path.read_text(encoding="utf-8").splitlines() if path.exists() else []
+    updated = False
+    output: list[str] = []
+    for line in lines:
+        if line.strip().startswith(f"{key}="):
+            output.append(f"{key}={value}")
+            updated = True
+        else:
+            output.append(line)
+    if not updated:
+        output.append(f"{key}={value}")
+    path.write_text("\n".join(output).rstrip() + "\n", encoding="utf-8")
+
+
 def _parse_toml_config(path: Path) -> dict[str, str]:
     if not path.exists():
         return {}
@@ -92,6 +123,7 @@ class Settings:
     def load(cls, workspace: Path | None = None) -> "Settings":
         root = workspace or Path.cwd()
         values: dict[str, str] = {}
+        values.update(_parse_env_file(user_env_path()))
         values.update(_parse_toml_config(root / "aria.toml"))
         values.update(_parse_env_file(root / ".env"))
 

@@ -1,174 +1,296 @@
-# 🧠 Tổng hợp & Kế hoạch Hackathon
+# ARIA
 
-## ✅ Project: Personal Autonomous Agent with Computer Use
-
-> CLI agent tự điều khiển browser, nhìn màn hình, suy luận và hành động như người thật — có memory dài hạn và tự cá nhân hóa theo user
+> **Autonomous Reasoning & Interaction Agent**
+>
+> An engineering-first autonomous AI runtime designed to build real AI agents that can **reason, interact, remember, and execute**.
 
 ---
 
-## Install & Run
+## Vision
+
+Most AI agent projects focus on prompting large language models.
+
+ARIA focuses on **building the runtime around the model**.
+
+The language model is only the **brain**.
+
+Everything else—planning, browser automation, memory, tools, execution, and orchestration—is implemented as independent engineering modules.
+
+Our goal is to build an extensible AI operating runtime rather than another chatbot.
+
+---
+
+# Why ARIA?
+
+Modern agent frameworks are powerful, but many tightly couple:
+
+* reasoning
+* tool execution
+* memory
+* browser automation
+* provider APIs
+
+This makes replacing components difficult.
+
+ARIA separates these responsibilities into independent modules.
+
+```
+            User
+              │
+              ▼
+          ARIA CLI
+              │
+              ▼
+         ARIA Harness
+              │
+    ┌─────────┼─────────┐
+    ▼         ▼         ▼
+ Planner   ToolRouter  Memory
+              │
+     ┌────────┼─────────┐
+     ▼        ▼         ▼
+ Browser   Vision    Research
+              │
+              ▼
+            Brain
+        (GPT / Claude / Local)
+```
+
+The AI model is **replaceable**.
+
+The runtime is **the product**.
+
+---
+
+# Philosophy
+
+ARIA follows four engineering principles.
+
+## 1. Brain is replaceable
+
+Today's AI may be GPT-5.5.
+
+Tomorrow it may be Claude.
+
+Next year it may be a local model.
+
+Nothing else should change.
+
+---
+
+## 2. Everything is a module
+
+Planner
+
+Browser
+
+Memory
+
+Vision
+
+Research
+
+Tool Router
+
+Harness
+
+are independent modules.
+
+---
+
+## 3. Local-first
+
+ARIA should continue to function even when cloud models are unavailable.
+
+Cloud providers enhance reasoning.
+
+They should never define the architecture.
+
+---
+
+## 4. Autonomous engineering
+
+ARIA is designed to:
+
+* inspect repositories
+* browse the web
+* generate reports
+* remember previous work
+* assist software engineering workflows
+
+---
+
+# Features
+
+* GPT-5.5 Brain (OpenAI Responses API)
+* Browser automation using Playwright
+* Vision abstraction
+* Long-term memory
+* Research report generation
+* CLI-first workflow
+* Rich terminal interface
+* Modular Harness architecture
+* Mock providers for offline development
+* uv-native packaging
+* Fully tested
+
+---
+
+# Installation
+
+Using uv:
 
 ```bash
-uv tool install . --reinstall
+uv tool install aria-agent
+aria config set openai-api-key
 aria demo
 ```
 
-Local configuration:
+or locally
 
 ```bash
-cp .env.example .env
+git clone https://github.com/<your-name>/ARIA.git
+
+cd ARIA
+
+uv sync
+
+uv tool install . --reinstall
+aria config set openai-api-key
+uv run aria demo
+```
+
+After publication, ARIA can also run through:
+
+```bash
+uvx aria-agent
+pipx install aria-agent
+aria --help
+```
+
+---
+
+# Configuration
+
+```bash
+aria config set openai-api-key
+```
+
+Verify configuration
+
+```bash
+aria config show
 aria config check
 ```
 
-Useful commands:
+Verify Brain
 
 ```bash
-aria "Research browser-use and produce a short report for ARIA"
-aria run "Research browser-use and produce a short report for ARIA"
-aria memory search "browser screenshots"
-```
-
-Do not commit real API keys. Keep them in `.env` or shell environment variables.
-
----
-
-## 🏗️ Architecture
-
-```
-User Input (CLI)
-      ↓
-Master Agent (Claude API)
-      ↓
-Tool Router
-   ├── Browser Agent (Playwright + Firefox)
-   │      ↓
-   │   Screenshot → Vision (Claude API)
-   │      ↓
-   │   Act (click/type/scroll)
-   │
-   ├── Memory Agent (ChromaDB)
-   │      ↓
-   │   Compress → Store → Prune
-   │
-   └── Summarizer Agent
-          ↓
-       Output đẹp ra CLI (Rich)
+aria brain check
 ```
 
 ---
 
-## 📦 Stack
+# Demo
 
-| Layer | Tool | Lý do |
-|---|---|---|
-| Browser control | Playwright (Python) | Stable, async support |
-| Vision + Reasoning | Claude API | Nhanh, vision tốt nhất |
-| Memory | ChromaDB | Em đã biết rồi |
-| CLI UI | Rich | Đẹp, dễ demo |
-| Auth | Playwright tự login | Không cần OAuth |
+Run
 
----
-
-## ⏱️ Timeline 9h - 19h
-
-**9:00 - 9:30 | Setup**
-```
-- Tạo project structure
-- pip install playwright chromadb anthropic rich
-- playwright install firefox
+```bash
+aria demo
 ```
 
-**9:30 - 11:00 | Core Browser Agent**
-```
-- Playwright mở Firefox
-- Chụp screenshot
-- Gửi lên Claude Vision
-- Nhận action → thực thi
-- Loop cơ bản chạy được
+Example
+
+```bash
+aria run "Research browser-use and produce a report."
 ```
 
-**11:00 - 12:30 | Memory System**
-```
-- ChromaDB setup
-- Compression: tóm tắt thông tin trước khi lưu
-- Retrieval: query relevant memory trước mỗi action
-- Prune: tự đánh giá memory nào outdated
-```
+Generated reports
 
-**12:30 - 13:00 | Nghỉ trưa 🍜**
-
-**13:00 - 14:30 | Master Agent + Tool Router**
 ```
-- Master agent nhận task từ user
-- Tự quyết định dùng tool nào
-- Orchestrate browser agent + memory agent
-- ReAct loop: Thought → Action → Observation
-```
-
-**14:30 - 16:00 | Personalization Layer**
-```
-- User profile (ngành, năm học, interests)
-- Filter thông tin theo profile
-- Agent tự hỏi lại nếu task mơ hồ
-```
-
-**16:00 - 17:30 | Test & Fix**
-```
-- Test end-to-end với task thật
-- Fix edge cases
-- Đảm bảo demo không vỡ
-```
-
-**17:30 - 18:30 | Polish Demo**
-```
-- Chuẩn bị 2-3 demo scenarios cụ thể
-- CLI output trông đẹp với Rich
-- Pre-cache các trang hay dùng
-```
-
-**18:30 - 19:00 | Chuẩn bị Present**
-```
-- Slide/note giải thích architecture
-- Nhấn mạnh: memory system + computer use = novel
+reports/
 ```
 
 ---
 
-## 🎯 Demo Scenarios (gợi ý)
-
-1. **"Check thông báo mới nhất từ trường em"**
-   → Agent tự mở portal, login, đọc, tóm tắt, lưu memory
-
-2. **"Những gì quan trọng với em tuần này?"**
-   → Agent query memory + browser → filter theo profile → trả lời
-
-3. **"Nhắc em deadline nào gần nhất"**
-   → Agent tổng hợp từ memory đã học được trước đó
-
----
-
-## 🔑 Điểm Novel khi Present
-
-> *"Không phải chatbot, không phải scraper — là agent thật sự **nhìn** và **suy nghĩ** như người dùng, nhớ được context theo thời gian, và tự cá nhân hóa"*
-
----
-
-## 📁 Project Structure gợi ý
+# Project Structure
 
 ```
-personal-agent/
-├── main.py              # CLI entry point
-├── agents/
-│   ├── master.py        # Orchestrator
-│   ├── browser.py       # Playwright + Vision
-│   ├── memory.py        # ChromaDB CRUD
-│   └── summarizer.py    # Tóm tắt output
-├── tools/
-│   ├── screenshot.py
-│   └── actions.py       # click, type, scroll
-├── profile/
-│   └── user.json        # Personalization data
-└── config.py            # API keys, settings
+src/aria/
+
+brain/
+
+planner/
+
+browser/
+
+vision/
+
+memory/
+
+research/
+
+tools/
+
+cli/
+
+config/
+
+harness.py
 ```
 
 ---
+
+# Why is ARIA different?
+
+ARIA is **not** trying to become another AutoGPT.
+
+ARIA is **not** trying to become another LangGraph.
+
+ARIA is **not** trying to become another CrewAI.
+
+Instead,
+
+ARIA provides a lightweight autonomous runtime where every subsystem can evolve independently.
+
+The emphasis is software engineering.
+
+Not prompt engineering.
+
+---
+
+# Roadmap
+
+* Reflection loop
+* Multi-agent collaboration
+* ChromaDB long-term memory
+* Local LLM providers
+* MCP ecosystem
+* Plugin system
+* Voice interaction
+* Computer-use improvements
+* Distributed agents
+
+---
+
+# Contributing
+
+Contributions are welcome.
+
+Please open an issue before submitting large architectural changes.
+
+---
+
+# License
+
+MIT
+
+---
+
+## Long-term Goal
+
+ARIA aims to become an open-source autonomous AI runtime for engineers.
+
+The objective is not simply to generate text.
+
+The objective is to build software capable of reasoning, interacting with the real world, remembering previous experience, and continuously improving over time.
