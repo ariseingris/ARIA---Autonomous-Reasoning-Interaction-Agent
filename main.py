@@ -1,5 +1,4 @@
-def main():
-    print("Hello from aria!")
+from aria.cli.main import main
 
 
 if __name__ == "__main__":
